@@ -162,21 +162,31 @@ elif aba == "🧾 Auditar Recebimento":
         ORDER BY data_hora
         """
         df_auditar = pd.read_sql_query(query, conn, params=(str(data_inicio), str(data_fim)))
+        
         if df_auditar.empty:
             st.info("Nenhuma pesagem encontrada no período.")
         else:
-            for idx, row in df_auditar.iterrows():
-                peso_sistema = st.number_input(f"Peso lançado no sistema para {row['codigo']}", key=f"sistema_{idx}", step=0.01)
-                observ = st.text_input("Observações (opcional)", key=f"obs_{idx}")
-                if st.button("💾 Salvar Auditoria", key=f"btn_{idx}"):
-                    diferenca = row['peso_real'] - peso_sistema
-                    data_hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
-                    cursor.execute("""
-                        INSERT INTO auditorias (data_hora, codigo, descricao, secao, peso_real, peso_sistema, diferenca, observacao)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (data_hora, row['codigo'], row['descricao'], row['secao'], row['peso_real'], peso_sistema, diferenca, observ))
-                    conn.commit()
-                    st.success("✅ Auditoria salva com sucesso!")
+            # Criar cards em duas colunas
+            for i in range(0, len(df_auditar), 2):
+                cols = st.columns(2)
+                for j in range(2):
+                    if i+j < len(df_auditar):
+                        row = df_auditar.iloc[i+j]
+                        with cols[j]:
+                            st.markdown(f"### 📦 {row['codigo']} - {row['descricao']}")
+                            st.write(f"**Seção:** {row['secao']}")
+                            st.write(f"**Peso Real:** {row['peso_real']} kg")
+                            peso_sistema = st.number_input(f"Peso Sistema", key=f"sistema_{row['id']}", step=0.01)
+                            observ = st.text_input("Observações", key=f"obs_{row['id']}")
+                            if st.button("💾 Salvar Auditoria", key=f"btn_{row['id']}"):
+                                diferenca = row['peso_real'] - peso_sistema
+                                data_hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
+                                cursor.execute("""
+                                    INSERT INTO auditorias (data_hora, codigo, descricao, secao, peso_real, peso_sistema, diferenca, observacao)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                """, (data_hora, row['codigo'], row['descricao'], row['secao'], row['peso_real'], peso_sistema, diferenca, observ))
+                                conn.commit()
+                                st.success("✅ Auditoria salva com sucesso!")
 
     st.markdown("### 📊 Relatório de Divergências Auditadas")
     filtro_inicio = st.date_input("📆 De (para exportação)", key="data1", value=date.today())
