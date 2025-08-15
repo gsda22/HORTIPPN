@@ -158,7 +158,7 @@ elif aba == "🧾 Auditar Recebimento":
     else:
         query = """
         SELECT * FROM pesagens_prevencao
-        WHERE date(data_hora) BETWEEN ? AND ?
+        WHERE substr(data_hora, 1, 10) BETWEEN ? AND ?
         ORDER BY data_hora
         """
         df_auditar = pd.read_sql_query(query, conn, params=(str(data_inicio), str(data_fim)))
@@ -184,7 +184,7 @@ elif aba == "🧾 Auditar Recebimento":
 
     df_auditorias = pd.read_sql_query("""
         SELECT * FROM auditorias
-        WHERE date(data_hora) BETWEEN ? AND ?
+        WHERE substr(data_hora, 1, 10) BETWEEN ? AND ?
         ORDER BY data_hora DESC
     """, conn, params=(str(filtro_inicio), str(filtro_fim)))
 
