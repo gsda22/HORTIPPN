@@ -3,6 +3,7 @@ import pandas as pd
 import sqlite3
 from datetime import datetime, date
 from io import BytesIO
+from zoneinfo import ZoneInfo  # Para horário de Brasília
 
 # CONFIG
 st.set_page_config(page_title="Recebimento FLV", layout="wide")
@@ -110,7 +111,8 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
         if not descricao or not secao:
             st.error("Preencha todos os campos obrigatórios.")
         else:
-            data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Horário de Brasília
+            data_hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
 
             # Cadastra novo produto se necessário
             cursor.execute("SELECT 1 FROM produtos WHERE codigo = ?", (codigo,))
@@ -127,8 +129,9 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
             st.success("✅ Pesagem registrada com sucesso!")
 
     st.markdown("### 📋 Últimas Pesagens Lançadas")
-    df_pesagens = pd.read_sql_query("SELECT * FROM pesagens_prevencao ORDER BY data_hora DESC LIMIT 50", conn)
-
+    df_pesagens = pd.read_sql_query(
+        "SELECT * FROM pesagens_prevencao ORDER BY data_hora DESC LIMIT 50", conn
+    ).iloc[::-1]  # Mantém as últimas 50 mas em ordem de coleta
     if not df_pesagens.empty:
         for idx, row in df_pesagens.iterrows():
             with st.expander(f"🗂️ {row['data_hora']} | {row['codigo']} - {row['descricao']}"):
@@ -163,18 +166,17 @@ elif aba == "🧾 Auditar Recebimento":
             st.info("Nenhuma pesagem encontrada no período.")
         else:
             for idx, row in df_auditar.iterrows():
-                with st.expander(f"📦 {row['codigo']} - {row['descricao']} | {row['peso_real']} kg"):
-                    peso_sistema = st.number_input(f"Peso lançado no sistema para {row['codigo']}", key=f"sistema_{idx}", step=0.01)
-                    observ = st.text_input("Observações (opcional)", key=f"obs_{idx}")
-                    if st.button("💾 Salvar Auditoria", key=f"btn_{idx}"):
-                        diferenca = row['peso_real'] - peso_sistema
-                        data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        cursor.execute("""
-                            INSERT INTO auditorias (data_hora, codigo, descricao, secao, peso_real, peso_sistema, diferenca, observacao)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (data_hora, row['codigo'], row['descricao'], row['secao'], row['peso_real'], peso_sistema, diferenca, observ))
-                        conn.commit()
-                        st.success("✅ Auditoria salva com sucesso!")
+                peso_sistema = st.number_input(f"Peso lançado no sistema para {row['codigo']}", key=f"sistema_{idx}", step=0.01)
+                observ = st.text_input("Observações (opcional)", key=f"obs_{idx}")
+                if st.button("💾 Salvar Auditoria", key=f"btn_{idx}"):
+                    diferenca = row['peso_real'] - peso_sistema
+                    data_hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
+                    cursor.execute("""
+                        INSERT INTO auditorias (data_hora, codigo, descricao, secao, peso_real, peso_sistema, diferenca, observacao)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (data_hora, row['codigo'], row['descricao'], row['secao'], row['peso_real'], peso_sistema, diferenca, observ))
+                    conn.commit()
+                    st.success("✅ Auditoria salva com sucesso!")
 
     st.markdown("### 📊 Relatório de Divergências Auditadas")
     filtro_inicio = st.date_input("📆 De (para exportação)", key="data1", value=date.today())
