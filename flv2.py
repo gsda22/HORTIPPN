@@ -35,8 +35,20 @@ produtos = pd.DataFrame([
 ])
 
 st.set_page_config(page_title="Auditoria FLV", layout="wide")
-
 st.title("🍌 Auditoria de Produtos FLV")
+
+# =========================================================
+# CAMPO DE CÁLCULO ESTILO EXCEL
+# =========================================================
+st.sidebar.header("📊 Campo de Cálculo")
+calculo = st.sidebar.text_input("Digite sua fórmula (ex: =20+20*2-5)", value="=20+20")
+if calculo.startswith("="):
+    try:
+        expr = calculo[1:]  # remove o "="
+        resultado = eval(expr)
+        st.sidebar.success(f"Resultado: {resultado}")
+    except Exception as e:
+        st.sidebar.error("Erro na expressão! Verifique a fórmula.")
 
 # =========================================================
 # LOOP DOS PRODUTOS PARA AUDITORIA
@@ -46,14 +58,15 @@ for i, row in produtos.iterrows():
         peso_real = st.number_input("Peso real (kg)", key=f"peso_{row['id']}", min_value=0.0, step=0.01)
         observ = st.text_input("Observação", key=f"obs_{row['id']}")
 
-        if st.button("💾 Salvar Auditoria", key=f"btn_{row['id']}"):
+        if st.button("💾 Salvar Auditoria", key=f"btn_save_{row['id']}"):
             diferenca = peso_real - row['peso_sistema']
             data_hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
 
             cursor.execute("""
                 INSERT INTO auditorias (data_hora, codigo, descricao, secao, peso_real, peso_sistema, diferenca, observacao)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (data_hora, row['codigo'], row['descricao'], row['secao'], peso_real, row['peso_sistema'], diferenca, observ))
+            """, (data_hora, row['codigo'], row['descricao'], row['secao'],
+                  peso_real, row['peso_sistema'], diferenca, observ))
             conn.commit()
 
             # Notificação rápida
@@ -68,41 +81,3 @@ for i, row in produtos.iterrows():
 st.subheader("📋 Histórico de Auditorias")
 auditorias = pd.read_sql_query("SELECT * FROM auditorias ORDER BY id DESC", conn)
 st.dataframe(auditorias, use_container_width=True)
-
-# =========================================================
-# CALCULADORA ESTILO WINDOWS
-# =========================================================
-with st.sidebar.expander("🧮 Calculadora"):
-    st.markdown("### Calculadora (estilo Windows)")
-
-    if "calc_display" not in st.session_state:
-        st.session_state.calc_display = ""
-
-    def press(btn):
-        if btn == "C":
-            st.session_state.calc_display = ""
-        elif btn == "=":
-            try:
-                expr = st.session_state.calc_display.replace("×", "*").replace("÷", "/")
-                st.session_state.calc_display = str(eval(expr))
-            except:
-                st.session_state.calc_display = "Erro"
-        else:
-            st.session_state.calc_display += btn
-
-    st.text_input("Display", value=st.session_state.calc_display, key="disp", disabled=True)
-
-    # Layout dos botões
-    buttons = [
-        ["7", "8", "9", "÷"],
-        ["4", "5", "6", "×"],
-        ["1", "2", "3", "-"],
-        ["0", ".", "=", "+"],
-        ["C"]
-    ]
-
-    for row in buttons:
-        cols = st.columns(len(row))
-        for i, btn in enumerate(row):
-            if cols[i].button(btn, key=f"btn_{btn}"):
-                press(btn)
