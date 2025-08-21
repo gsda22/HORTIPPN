@@ -52,26 +52,47 @@ CREATE TABLE IF NOT EXISTS auditorias (
 """)
 conn.commit()
 
-# CALCULADORA FLUTUANTE
+# =========================================================
+# CALCULADORA FLUTUANTE ESTILO WINDOWS
+# =========================================================
 with st.sidebar.expander("🧮 Calculadora"):
-    st.markdown("Simples como a calculadora padrão do Windows.")
-    calc_col1, calc_col2 = st.columns(2)
-    with calc_col1:
-        num1 = st.number_input("Valor 1", key="calc1", label_visibility="collapsed", placeholder="0")
-    with calc_col2:
-        num2 = st.number_input("Valor 2", key="calc2", label_visibility="collapsed", placeholder="0")
-    operacao = st.selectbox("Operação", ["+", "-", "×", "÷"], key="operacao")
-    if operacao == "+":
-        resultado = num1 + num2
-    elif operacao == "-":
-        resultado = num1 - num2
-    elif operacao == "×":
-        resultado = num1 * num2
-    elif operacao == "÷":
-        resultado = num1 / num2 if num2 != 0 else "Erro"
-    st.text_input("Resultado", value=str(resultado), disabled=True)
+    st.markdown("### Calculadora (estilo Windows)")
 
+    if "calc_display" not in st.session_state:
+        st.session_state.calc_display = ""
+
+    # Função para atualizar display
+    def press(btn):
+        if btn == "C":
+            st.session_state.calc_display = ""
+        elif btn == "=":
+            try:
+                st.session_state.calc_display = str(eval(st.session_state.calc_display))
+            except:
+                st.session_state.calc_display = "Erro"
+        else:
+            st.session_state.calc_display += btn
+
+    st.text_input("Display", value=st.session_state.calc_display, key="disp", disabled=True)
+
+    # Layout dos botões (igual Windows)
+    buttons = [
+        ["7", "8", "9", "/"],
+        ["4", "5", "6", "*"],
+        ["1", "2", "3", "-"],
+        ["0", ".", "=", "+"],
+        ["C"]
+    ]
+
+    for row in buttons:
+        cols = st.columns(len(row))
+        for i, btn in enumerate(row):
+            if cols[i].button(btn, key=f"btn_{btn}"):
+                press(btn)
+
+# =========================================================
 # UPLOAD DA BASE DE PRODUTOS
+# =========================================================
 with st.expander("📥 Upload da base de produtos (.xlsx)"):
     file = st.file_uploader("Carregue um arquivo com as colunas: codigo, descricao, secao", type=["xlsx"])
     if file:
@@ -80,12 +101,14 @@ with st.expander("📥 Upload da base de produtos (.xlsx)"):
         df.to_sql("produtos", conn, if_exists="replace", index=False)
         st.success("✅ Base de produtos atualizada com sucesso!")
 
+# =========================================================
 # ABAS
+# =========================================================
 aba = st.sidebar.radio("Escolha uma opção:", ["📥 Lançar Pesagens (Prevenção)", "🧾 Auditar Recebimento"])
 
-# ============================================
+# =========================================================
 # PESAGEM PREVENÇÃO
-# ============================================
+# =========================================================
 if aba == "📥 Lançar Pesagens (Prevenção)":
     st.markdown("## 📥 Lançar Pesagens - Prevenção")
     codigo = st.text_input("Código do Produto (interno)", max_chars=10)
@@ -142,9 +165,9 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
                     conn.commit()
                     st.warning("Pesagem excluída. Recarregue a página para atualizar.")
 
-# ============================================
+# =========================================================
 # AUDITORIA
-# ============================================
+# =========================================================
 elif aba == "🧾 Auditar Recebimento":
     st.markdown("## 🧾 Auditoria de Recebimento")
     col1, col2 = st.columns(2)
@@ -186,7 +209,21 @@ elif aba == "🧾 Auditar Recebimento":
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                 """, (data_hora, row['codigo'], row['descricao'], row['secao'], row['peso_real'], peso_sistema, diferenca, observ))
                                 conn.commit()
-                                st.success("✅ Auditoria salva com sucesso!")
+
+                                # Pop-up com divergência
+                                with st.modal("📊 Resultado da Auditoria"):
+                                    st.write(f"**Produto:** {row['descricao']}")
+                                    st.write(f"**Peso Real:** {row['peso_real']} kg")
+                                    st.write(f"**Peso Sistema:** {peso_sistema} kg")
+                                    st.write(f"**Diferença:** {diferenca:.2f} kg")
+
+                                    if diferenca != 0:
+                                        st.error("⚠️ Divergência encontrada!")
+                                    else:
+                                        st.success("✅ Nenhuma divergência.")
+
+                                    if st.button("OK, entendi", key=f"close_{row['id']}"):
+                                        st.rerun()
 
     st.markdown("### 📊 Relatório de Divergências Auditadas")
     filtro_inicio = st.date_input("📆 De (para exportação)", key="data1", value=date.today())
