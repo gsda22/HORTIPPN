@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS auditorias (
 conn.commit()
 
 # =========================================================
-# CALCULADORA FLUTUANTE ESTILO WINDOWS
+# CALCULADORA FLUTUANTE ESTILO WINDOWS (corrigida)
 # =========================================================
 with st.sidebar.expander("🧮 Calculadora"):
     st.markdown("### Calculadora (estilo Windows)")
@@ -61,13 +61,13 @@ with st.sidebar.expander("🧮 Calculadora"):
     if "calc_display" not in st.session_state:
         st.session_state.calc_display = ""
 
-    # Função para atualizar display
     def press(btn):
         if btn == "C":
             st.session_state.calc_display = ""
         elif btn == "=":
             try:
-                st.session_state.calc_display = str(eval(st.session_state.calc_display))
+                expr = st.session_state.calc_display.replace("×", "*").replace("÷", "/")
+                st.session_state.calc_display = str(eval(expr))
             except:
                 st.session_state.calc_display = "Erro"
         else:
@@ -77,8 +77,8 @@ with st.sidebar.expander("🧮 Calculadora"):
 
     # Layout dos botões (igual Windows)
     buttons = [
-        ["7", "8", "9", "/"],
-        ["4", "5", "6", "*"],
+        ["7", "8", "9", "÷"],
+        ["4", "5", "6", "×"],
         ["1", "2", "3", "-"],
         ["0", ".", "=", "+"],
         ["C"]
