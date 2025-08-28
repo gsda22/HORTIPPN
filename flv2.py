@@ -63,7 +63,7 @@ calculo = st.sidebar.text_input("Digite sua fórmula (ex: 20+20*2-5)", value="20
 try:
     resultado = eval(calculo)
     st.sidebar.success(f"Resultado: {resultado}")
-except Exception as e:
+except:
     st.sidebar.error("Erro na expressão! Verifique a fórmula.")
 
 # =========================================================
@@ -72,10 +72,12 @@ except Exception as e:
 aba = st.sidebar.radio("Escolha uma opção:", ["📥 Lançar Pesagens (Prevenção)", "🧾 Auditar Recebimento"])
 
 # =========================================================
-# INICIALIZAÇÃO DE ESTADO
+# Inicializa listas de sessão
 # =========================================================
-if "refresh" not in st.session_state:
-    st.session_state.refresh = False
+if "excluir_ids" not in st.session_state:
+    st.session_state.excluir_ids = set()
+if "auditar_ids" not in st.session_state:
+    st.session_state.auditar_ids = set()
 
 # =========================================================
 # PESAGEM PREVENÇÃO
@@ -113,15 +115,13 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
                         cursor.execute("INSERT INTO produtos (codigo, descricao, secao) VALUES (?, ?, ?)",
                                        (codigo, descricao, secao))
                     
-                    # Grava pesagem sem quantidade
+                    # Grava pesagem
                     cursor.execute("""
                         INSERT INTO pesagens_prevencao (data_hora, codigo, descricao, secao, peso_real, observacao)
                         VALUES (?, ?, ?, ?, ?, ?)
                     """, (data_hora, codigo, descricao, secao, peso_real, observacao))
                     conn.commit()
-                    
-                    # Define estado para refresh
-                    st.session_state.refresh = True
+                    st.success("✅ Pesagem registrada com sucesso!")
 
     # =========================================================
     # EXIBIÇÃO DAS ÚLTIMAS PESAGENS
@@ -130,16 +130,19 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
     df_pesagens = pd.read_sql_query(
         "SELECT * FROM pesagens_prevencao ORDER BY data_hora DESC LIMIT 50", conn
     ).iloc[::-1]
-    
+
     if not df_pesagens.empty:
         for idx, row in df_pesagens.iterrows():
+            if row["id"] in st.session_state.excluir_ids:
+                continue
             with st.expander(f"🗂️ {row['data_hora']} | {row['codigo']} - {row['descricao']}"):
                 st.write(f"**Peso Real:** {row.get('peso_real', '')}")
                 st.write(f"**Observação:** {row['observacao']}")
                 if st.button("❌ Excluir", key=f"del_{row['id']}"):
                     cursor.execute("DELETE FROM pesagens_prevencao WHERE id = ?", (row['id'],))
                     conn.commit()
-                    st.session_state.refresh = True
+                    st.session_state.excluir_ids.add(row["id"])
+                    st.experimental_rerun()  # pequeno rerun seguro aqui
 
 # =========================================================
 # AUDITORIA
@@ -161,7 +164,7 @@ elif aba == "🧾 Auditar Recebimento":
         ORDER BY data_hora
         """
         df_auditar = pd.read_sql_query(query, conn, params=(str(data_inicio), str(data_fim)))
-        
+
         if df_auditar.empty:
             st.info("Nenhuma pesagem encontrada no período.")
         else:
@@ -170,6 +173,8 @@ elif aba == "🧾 Auditar Recebimento":
                 for j in range(2):
                     if i+j < len(df_auditar):
                         row = df_auditar.iloc[i+j]
+                        if row["id"] in st.session_state.auditar_ids:
+                            continue
                         with cols[j]:
                             st.markdown(f"### 📦 {row['codigo']} - {row['descricao']}")
                             st.write(f"**Seção:** {row['secao']}")
@@ -188,11 +193,6 @@ elif aba == "🧾 Auditar Recebimento":
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                 """, (data_hora, row['codigo'], row['descricao'], row['secao'], row.get('peso_real',''), peso_sistema, diferenca, observ))
                                 conn.commit()
-                                st.session_state.refresh = True
-
-# =========================================================
-# ATUALIZAÇÃO DE PÁGINA SE NECESSÁRIO
-# =========================================================
-if st.session_state.refresh:
-    st.session_state.refresh = False
-    st.experimental_rerun()
+                                st.session_state.auditar_ids.add(row["id"])
+                                st.success(f"Auditoria salva para {row['descricao']}")
+                                st.experimental_rerun()
