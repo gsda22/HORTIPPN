@@ -1,5 +1,6 @@
 streamlit
 pandas
-openpyxl
-speechrecognition
-pydub
+numpy
+soundfile
+streamlit-webrtc
+zoneinfo; python_version < "3.9"
