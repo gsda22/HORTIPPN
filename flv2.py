@@ -20,7 +20,7 @@ def init_db():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   username TEXT UNIQUE NOT NULL,
                   password_hash TEXT NOT NULL,
-                  role TEXT NOT NULL,  -- admin, registrador, auditor
+                  role TEXT NOT NULL,  -- admin, registrar, auditor
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
     # Entidade forte: Lojas
@@ -114,6 +114,14 @@ def get_products():
     conn.close()
     return products
 
+def get_unique_categories():
+    conn = sqlite3.connect('ceasa.db')
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT category FROM products WHERE category IS NOT NULL")
+    categories = [row[0] for row in c.fetchall()]
+    conn.close()
+    return ["Todas"] + sorted(categories)  # Adiciona "Todas" como opção padrão
+
 def get_product_by_code(code):
     conn = sqlite3.connect('ceasa.db')
     c = conn.cursor()
@@ -167,18 +175,37 @@ def audit_registration(reg_id, actual_quantity, user_id):
     conn.commit()
     conn.close()
 
-def get_divergent_products():
+def get_divergent_products(category_filter=None, start_date=None, end_date=None):
     conn = sqlite3.connect('ceasa.db')
-    df = pd.read_sql_query("""
+    query = """
         SELECT p.name as produto, AVG(ABS(r.quantity - a.actual_quantity)) as divergencia_media,
                COUNT(*) as contagem
         FROM registrations r
         JOIN audits a ON r.id = a.registration_id
         JOIN products p ON r.product_id = p.id
-        GROUP BY p.id
-        ORDER BY divergencia_media DESC
-        LIMIT 10
-    """, conn)
+        WHERE 1=1
+    """
+    params = []
+    
+    # Filtro por seção
+    if category_filter and category_filter != "Todas":
+        query += " AND p.category = ?"
+        params.append(category_filter)
+    
+    # Filtro por intervalo de datas
+    if start_date and end_date:
+        query += " AND r.registered_at BETWEEN ? AND ?"
+        params.extend([start_date, end_date])
+    elif start_date:
+        query += " AND r.registered_at >= ?"
+        params.append(start_date)
+    elif end_date:
+        query += " AND r.registered_at <= ?"
+        params.append(end_date)
+
+    query += " GROUP BY p.id ORDER BY divergencia_media DESC LIMIT 10"
+    
+    df = pd.read_sql_query(query, conn, params=params)
     conn.close()
     return df
 
@@ -303,7 +330,7 @@ if not st.session_state.logged_in:
             st.session_state.username = username
             st.session_state.user_id = get_user_id(username)
             st.success("Login realizado com sucesso!")
-            st.rerun()
+            st.experimental_rerun()
         else:
             st.error("Usuário ou senha inválidos")
 else:
@@ -313,7 +340,7 @@ else:
         st.session_state.role = None
         st.session_state.user_id = None
         st.session_state.username = None
-        st.rerun()
+        st.experimental_rerun()
     
     if st.session_state.role == "admin":
         change_pass = st.sidebar.checkbox("Alterar Senha")
@@ -326,120 +353,4 @@ else:
                     change_password(st.session_state.user_id, new_pass)
                     st.sidebar.success("Senha alterada com sucesso!")
                 elif submit_change:
-                    st.sidebar.error("As senhas não coincidem")
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["Registrar às Cegas", "Auditar", "Relatórios", "Gerenciar Usuários"])
-    
-    with tab1:
-        if st.session_state.role in ["admin", "registrar"]:
-            st.header("Registrar CEASA às Cegas")
-            
-            # Upload de arquivo Excel
-            uploaded_file = st.file_uploader("Carregar arquivo Excel com produtos (colunas: codigo, descricao, secao)", type="xlsx", key="excel_uploader")
-            if uploaded_file is not None:
-                with st.spinner("Processando o upload do Excel..."):
-                    if upload_products(uploaded_file):
-                        st.experimental_rerun()  # Recarrega a página apenas após sucesso
-                    else:
-                        st.stop()  # Para a execução se houver erro
-            
-            # Exibir tabela de produtos para depuração
-            st.subheader("Produtos Cadastrados")
-            products_df = get_all_products_df()
-            if products_df.empty:
-                st.info("Nenhum produto cadastrado no banco de dados.")
-            else:
-                st.dataframe(products_df)
-            
-            # Input de código do produto
-            product_code = st.text_input("Código do Produto", placeholder="Digite o código do produto (ex.: 001)", key="product_code_input")
-            product_id = None
-            if product_code:
-                if product_code.strip() == "":
-                    st.error("O código do produto não pode estar vazio.")
-                else:
-                    product = get_product_by_code(product_code)
-                    if product:
-                        product_id, code, name, category, unit = product
-                        st.write(f"**Descrição**: {name}")
-                        st.write(f"**Seção**: {category}")
-                        st.write(f"**Unidade**: {unit}")
-                    else:
-                        st.warning(f"Produto com código '{product_code}' não encontrado.")
-                        add_new = st.checkbox("Adicionar este produto ao banco de dados?", key="add_new_product")
-                        if add_new:
-                            with st.form("add_new_product_form"):
-                                new_code = st.text_input("Código", value=product_code, disabled=True)
-                                new_name = st.text_input("Descrição")
-                                new_category = st.text_input("Seção")
-                                new_unit = st.text_input("Unidade (ex.: kg)")
-                                if st.form_submit_button("Adicionar Produto"):
-                                    if new_name.strip() == "" or new_code.strip() == "":
-                                        st.error("O código e a descrição do produto não podem estar vazios.")
-                                    else:
-                                        add_product(new_code, new_name, new_category, new_unit)
-                                        st.experimental_rerun()
-            
-            stores = get_stores()
-            store_options = {name: id for id, name in stores}
-            selected_store = st.selectbox("Loja", list(store_options.keys()), key="store_select")
-            quantity = st.number_input("Quantidade", min_value=0.0, key="quantity_input")
-            if st.button("Registrar", key="register_button"):
-                if product_id:
-                    register_blind(product_id, store_options[selected_store], quantity, st.session_state.user_id)
-                    st.success("Registrado com sucesso!")
-                else:
-                    st.error("Selecione um produto válido antes de registrar.")
-        else:
-            st.error("Acesso negado.")
-    
-    with tab2:
-        if st.session_state.role in ["admin", "auditor"]:
-            st.header("Auditar Quantidade Recebida")
-            regs = get_registrations_without_audit()
-            if regs.empty:
-                st.info("Nenhum registro para auditar.")
-            else:
-                st.dataframe(regs)
-                reg_id = st.number_input("ID do Registro para Auditar", min_value=1, key="audit_reg_id")
-                actual_qty = st.number_input("Quantidade Real", min_value=0.0, key="audit_qty")
-                if st.button("Auditar", key="audit_button"):
-                    audit_registration(reg_id, actual_qty, st.session_state.user_id)
-                    st.success("Auditado com sucesso!")
-                    st.experimental_rerun()
-        else:
-            st.error("Acesso negado.")
-    
-    with tab3:
-        st.header("Relatórios: Produtos com Maior Divergência")
-        div = get_divergent_products()
-        if div.empty:
-            st.info("Nenhum dado disponível.")
-        else:
-            st.dataframe(div)
-    
-    with tab4:
-        if st.session_state.role == "admin":
-            st.header("Gerenciamento de Usuários")
-            users_df = get_users()
-            st.dataframe(users_df)
-            
-            st.subheader("Adicionar Usuário")
-            with st.form("add_user"):
-                new_username = st.text_input("Usuário")
-                new_password = st.text_input("Senha", type="password")
-                new_role = st.selectbox("Papel", ["registrador", "auditor", "admin"])
-                if st.form_submit_button("Adicionar"):
-                    add_user(new_username, new_password, new_role)
-                    st.success("Usuário adicionado!")
-                    st.experimental_rerun()
-            
-            st.subheader("Excluir Usuário")
-            del_user_id = st.number_input("ID do Usuário para Excluir", min_value=1)
-            if st.button("Excluir", key="delete_user_button"):
-                delete_user(del_user_id)
-                st.success("Usuário excluído!")
-                st.experimental_rerun()
-        else:
-            st.error("Acesso negado.")
-
+                    st.sidebar
