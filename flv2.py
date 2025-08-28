@@ -4,6 +4,8 @@ import pandas as pd
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 from io import BytesIO
+import speech_recognition as sr
+import tempfile
 
 # =========================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -35,7 +37,7 @@ CREATE TABLE IF NOT EXISTS pesagens_prevencao (
     codigo TEXT,
     descricao TEXT,
     secao TEXT,
-    quantidade INTEGER DEFAULT 1,
+    quantidade REAL DEFAULT 1,
     peso_real REAL,
     observacao TEXT
 )
@@ -48,7 +50,7 @@ CREATE TABLE IF NOT EXISTS auditorias (
     codigo TEXT,
     descricao TEXT,
     secao TEXT,
-    quantidade INTEGER DEFAULT 1,
+    quantidade REAL DEFAULT 1,
     peso_real REAL,
     peso_sistema REAL,
     diferenca REAL,
@@ -72,6 +74,27 @@ except Exception as e:
 # ABAS DO SISTEMA
 # =========================================================
 aba = st.sidebar.radio("Escolha uma opção:", ["📥 Lançar Pesagens (Prevenção)", "🧾 Auditar Recebimento"])
+
+# =========================================================
+# FUNÇÃO PARA RECONHECIMENTO DE VOZ
+# =========================================================
+def reconhecer_quantidade(audio_file):
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp.write(audio_file.read())
+        tmp_path = tmp.name
+
+    r = sr.Recognizer()
+    with sr.AudioFile(tmp_path) as source:
+        audio = r.record(source)
+        try:
+            text = r.recognize_google(audio, language="pt-BR")
+            try:
+                quantidade = float(text.replace(",", "."))
+                return quantidade, text
+            except:
+                return None, text
+        except:
+            return None, None
 
 # =========================================================
 # PESAGEM PREVENÇÃO
@@ -98,25 +121,48 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
         # EXPANDER COMO POPUP
         # =========================================================
         with st.expander("📦 Inserir Detalhes da Pesagem", expanded=True):
-            quantidade = st.number_input("Quantidade de Itens", min_value=1, step=1, value=1)
+            quantidade = st.number_input(
+                "Quantidade de Itens", 
+                min_value=0.01, 
+                step=0.01, 
+                value=1.0, 
+                format="%.2f"
+            )
+
+            st.markdown("### 🎤 Inserir quantidade por áudio")
+            audio_file = st.file_uploader("Grave sua quantidade (MP3/WAV)", type=["wav","mp3","m4a"])
+            if audio_file:
+                qnt_audio, texto = reconhecer_quantidade(audio_file)
+                if qnt_audio:
+                    quantidade = qnt_audio
+                    st.success(f"Quantidade reconhecida: {quantidade} (Você disse: {texto})")
+                elif texto:
+                    st.error(f"Não foi possível converter '{texto}' em número")
+                else:
+                    st.error("Não entendi o áudio. Tente novamente.")
+
             peso_real = st.number_input("Peso Real da Pesagem (kg)", step=0.01)
             observacao = st.text_input("Observações (opcional)")
 
             if st.button("✅ Registrar Pesagem", key=f"btn_{codigo}"):
-                data_hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
-                
-                # Cadastra produto se necessário
-                if not result and descricao and secao:
-                    cursor.execute("INSERT INTO produtos (codigo, descricao, secao) VALUES (?, ?, ?)",
-                                   (codigo, descricao, secao))
-                
-                # Grava pesagem
-                cursor.execute("""
-                    INSERT INTO pesagens_prevencao (data_hora, codigo, descricao, secao, quantidade, peso_real, observacao)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (data_hora, codigo, descricao, secao, quantidade, peso_real, observacao))
-                conn.commit()
-                st.success("✅ Pesagem registrada com sucesso!")
+                if not result and (not descricao or not secao):
+                    st.error("Preencha descrição e seção para cadastrar o produto.")
+                else:
+                    data_hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Cadastra produto se necessário
+                    if not result and descricao and secao:
+                        cursor.execute("INSERT INTO produtos (codigo, descricao, secao) VALUES (?, ?, ?)",
+                                       (codigo, descricao, secao))
+                    
+                    # Grava pesagem
+                    cursor.execute("""
+                        INSERT INTO pesagens_prevencao (data_hora, codigo, descricao, secao, quantidade, peso_real, observacao)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (data_hora, codigo, descricao, secao, quantidade, peso_real, observacao))
+                    conn.commit()
+                    st.success("✅ Pesagem registrada com sucesso!")
+                    st.experimental_rerun()
 
     # =========================================================
     # EXIBIÇÃO DAS ÚLTIMAS PESAGENS
@@ -129,13 +175,13 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
     if not df_pesagens.empty:
         for idx, row in df_pesagens.iterrows():
             with st.expander(f"🗂️ {row['data_hora']} | {row['codigo']} - {row['descricao']}"):
-                st.write(f"**Quantidade:** {row.get('quantidade', 1)} unid.")
-                st.write(f"**Peso Real:** {row['peso_real']} kg")
+                st.write(f"**Quantidade:** {row.get('quantidade', 1):.2f} unid.")
+                st.write(f"**Peso Real:** {row['peso_real']:.2f} kg")
                 st.write(f"**Observação:** {row['observacao']}")
                 if st.button("❌ Excluir", key=f"del_{row['id']}"):
                     cursor.execute("DELETE FROM pesagens_prevencao WHERE id = ?", (row['id'],))
                     conn.commit()
-                    st.warning("Pesagem excluída. Recarregue a página para atualizar.")
+                    st.experimental_rerun()
 
 # =========================================================
 # AUDITORIA
@@ -169,9 +215,15 @@ elif aba == "🧾 Auditar Recebimento":
                         with cols[j]:
                             st.markdown(f"### 📦 {row['codigo']} - {row['descricao']}")
                             st.write(f"**Seção:** {row['secao']}")
-                            st.write(f"**Quantidade:** {row.get('quantidade', 1)} unid.")
-                            st.write(f"**Peso Real:** {row['peso_real']} kg")
-                            peso_sistema = st.number_input(f"Peso Sistema", key=f"sistema_{row['id']}", step=0.01)
+                            st.write(f"**Quantidade:** {row.get('quantidade', 1):.2f} unid.")
+                            st.write(f"**Peso Real:** {row['peso_real']:.2f} kg")
+                            peso_sistema = st.number_input(
+                                f"Peso Sistema", 
+                                key=f"sistema_{row['id']}", 
+                                value=row['peso_real'], 
+                                step=0.01, 
+                                format="%.2f"
+                            )
                             observ = st.text_input("Observações", key=f"obs_{row['id']}")
                             if st.button("💾 Salvar Auditoria", key=f"btn_{row['id']}"):
                                 diferenca = row['peso_real'] - peso_sistema
