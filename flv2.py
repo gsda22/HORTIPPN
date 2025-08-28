@@ -72,6 +72,12 @@ except Exception as e:
 aba = st.sidebar.radio("Escolha uma opção:", ["📥 Lançar Pesagens (Prevenção)", "🧾 Auditar Recebimento"])
 
 # =========================================================
+# INICIALIZAÇÃO DE ESTADO
+# =========================================================
+if "refresh" not in st.session_state:
+    st.session_state.refresh = False
+
+# =========================================================
 # PESAGEM PREVENÇÃO
 # =========================================================
 if aba == "📥 Lançar Pesagens (Prevenção)":
@@ -113,8 +119,9 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
                         VALUES (?, ?, ?, ?, ?, ?)
                     """, (data_hora, codigo, descricao, secao, peso_real, observacao))
                     conn.commit()
-                    st.success("✅ Pesagem registrada com sucesso!")
-                    st.experimental_rerun()
+                    
+                    # Define estado para refresh
+                    st.session_state.refresh = True
 
     # =========================================================
     # EXIBIÇÃO DAS ÚLTIMAS PESAGENS
@@ -132,7 +139,7 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
                 if st.button("❌ Excluir", key=f"del_{row['id']}"):
                     cursor.execute("DELETE FROM pesagens_prevencao WHERE id = ?", (row['id'],))
                     conn.commit()
-                    st.experimental_rerun()
+                    st.session_state.refresh = True
 
 # =========================================================
 # AUDITORIA
@@ -181,21 +188,11 @@ elif aba == "🧾 Auditar Recebimento":
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                 """, (data_hora, row['codigo'], row['descricao'], row['secao'], row.get('peso_real',''), peso_sistema, diferenca, observ))
                                 conn.commit()
-                                st.success(f"Auditoria salva para {row['descricao']}")
+                                st.session_state.refresh = True
 
-    st.markdown("### 📊 Relatório de Divergências Auditadas")
-    filtro_inicio = st.date_input("📆 De (para exportação)", key="data1", value=date.today())
-    filtro_fim = st.date_input("📆 Até (para exportação)", key="data2", value=date.today())
-
-    df_auditorias = pd.read_sql_query("""
-        SELECT * FROM auditorias
-        WHERE substr(data_hora, 1, 10) BETWEEN ? AND ?
-        ORDER BY data_hora DESC
-    """, conn, params=(str(filtro_inicio), str(filtro_fim)))
-
-    st.dataframe(df_auditorias, use_container_width=True)
-
-    if not df_auditorias.empty:
-        buffer = BytesIO()
-        df_auditorias.to_excel(buffer, index=False)
-        st.download_button("📥 Baixar Excel das Auditorias", buffer.getvalue(), file_name="auditorias_recebimento.xlsx")
+# =========================================================
+# ATUALIZAÇÃO DE PÁGINA SE NECESSÁRIO
+# =========================================================
+if st.session_state.refresh:
+    st.session_state.refresh = False
+    st.experimental_rerun()
