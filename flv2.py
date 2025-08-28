@@ -94,11 +94,14 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
             descricao = st.text_input("Descrição")
             secao = st.text_input("Seção")
 
-        # MODAL / POPUP PARA INSERIR QUANTIDADE E PESO
-        with st.modal("📦 Inserir Detalhes da Pesagem", key=f"modal_{codigo}"):
+        # =========================================================
+        # EXPANDER COMO POPUP
+        # =========================================================
+        with st.expander("📦 Inserir Detalhes da Pesagem", expanded=True):
             quantidade = st.number_input("Quantidade de Itens", min_value=1, step=1, value=1)
             peso_real = st.number_input("Peso Real da Pesagem (kg)", step=0.01)
             observacao = st.text_input("Observações (opcional)")
+
             if st.button("✅ Registrar Pesagem", key=f"btn_{codigo}"):
                 data_hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
                 
@@ -115,6 +118,9 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
                 conn.commit()
                 st.success("✅ Pesagem registrada com sucesso!")
 
+    # =========================================================
+    # EXIBIÇÃO DAS ÚLTIMAS PESAGENS
+    # =========================================================
     st.markdown("### 📋 Últimas Pesagens Lançadas")
     df_pesagens = pd.read_sql_query(
         "SELECT * FROM pesagens_prevencao ORDER BY data_hora DESC LIMIT 50", conn
