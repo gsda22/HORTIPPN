@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS pesagens_prevencao (
     codigo TEXT,
     descricao TEXT,
     secao TEXT,
-    quantidade TEXT,
     peso_real TEXT,
     observacao TEXT
 )
@@ -48,7 +47,6 @@ CREATE TABLE IF NOT EXISTS auditorias (
     codigo TEXT,
     descricao TEXT,
     secao TEXT,
-    quantidade TEXT,
     peso_real TEXT,
     peso_sistema TEXT,
     diferenca TEXT,
@@ -95,8 +93,6 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
             secao = st.text_input("Seção")
 
         with st.expander("📦 Inserir Detalhes da Pesagem", expanded=True):
-            # Campos totalmente livres (texto)
-            quantidade = st.text_input("Quantidade de Itens (ex: 3 ou 1.5kg)")
             peso_real = st.text_input("Peso Real da Pesagem (ex: 2.5kg)")
             observacao = st.text_area("Observação")
 
@@ -111,11 +107,11 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
                         cursor.execute("INSERT INTO produtos (codigo, descricao, secao) VALUES (?, ?, ?)",
                                        (codigo, descricao, secao))
                     
-                    # Grava pesagem
+                    # Grava pesagem sem quantidade
                     cursor.execute("""
-                        INSERT INTO pesagens_prevencao (data_hora, codigo, descricao, secao, quantidade, peso_real, observacao)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (data_hora, codigo, descricao, secao, quantidade, peso_real, observacao))
+                        INSERT INTO pesagens_prevencao (data_hora, codigo, descricao, secao, peso_real, observacao)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (data_hora, codigo, descricao, secao, peso_real, observacao))
                     conn.commit()
                     st.success("✅ Pesagem registrada com sucesso!")
                     st.experimental_rerun()
@@ -131,7 +127,6 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
     if not df_pesagens.empty:
         for idx, row in df_pesagens.iterrows():
             with st.expander(f"🗂️ {row['data_hora']} | {row['codigo']} - {row['descricao']}"):
-                st.write(f"**Quantidade:** {row.get('quantidade', '')}")
                 st.write(f"**Peso Real:** {row.get('peso_real', '')}")
                 st.write(f"**Observação:** {row['observacao']}")
                 if st.button("❌ Excluir", key=f"del_{row['id']}"):
@@ -171,7 +166,6 @@ elif aba == "🧾 Auditar Recebimento":
                         with cols[j]:
                             st.markdown(f"### 📦 {row['codigo']} - {row['descricao']}")
                             st.write(f"**Seção:** {row['secao']}")
-                            st.write(f"**Quantidade:** {row.get('quantidade', '')}")
                             st.write(f"**Peso Real:** {row.get('peso_real', '')}")
                             peso_sistema = st.text_input(f"Peso Sistema", key=f"sistema_{row['id']}", value=row.get('peso_real',''))
                             observ = st.text_input("Observações", key=f"obs_{row['id']}")
@@ -183,9 +177,9 @@ elif aba == "🧾 Auditar Recebimento":
                                     diferenca = ""
                                 data_hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
                                 cursor.execute("""
-                                    INSERT INTO auditorias (data_hora, codigo, descricao, secao, quantidade, peso_real, peso_sistema, diferenca, observacao)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                """, (data_hora, row['codigo'], row['descricao'], row['secao'], row.get('quantidade',''), row.get('peso_real',''), peso_sistema, diferenca, observ))
+                                    INSERT INTO auditorias (data_hora, codigo, descricao, secao, peso_real, peso_sistema, diferenca, observacao)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                """, (data_hora, row['codigo'], row['descricao'], row['secao'], row.get('peso_real',''), peso_sistema, diferenca, observ))
                                 conn.commit()
                                 st.success(f"Auditoria salva para {row['descricao']}")
 
