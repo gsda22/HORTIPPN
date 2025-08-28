@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS pesagens_prevencao (
     codigo TEXT,
     descricao TEXT,
     secao TEXT,
+    quantidade INTEGER,
     peso_real REAL,
     observacao TEXT
 )
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS auditorias (
     codigo TEXT,
     descricao TEXT,
     secao TEXT,
+    quantidade INTEGER,
     peso_real REAL,
     peso_sistema REAL,
     diferenca REAL,
@@ -92,6 +94,10 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
             descricao = st.text_input("Descrição")
             secao = st.text_input("Seção")
 
+    # Pop-up para quantidade
+    with st.popover("➕ Inserir Quantidade"):
+        quantidade = st.number_input("Quantidade de Itens", min_value=1, step=1, value=1)
+
     peso_real = st.number_input("Peso Real da Pesagem (kg)", step=0.01)
     observacao = st.text_input("Observações (opcional)")
 
@@ -109,9 +115,9 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
 
             # Grava pesagem
             cursor.execute("""
-                INSERT INTO pesagens_prevencao (data_hora, codigo, descricao, secao, peso_real, observacao)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (data_hora, codigo, descricao, secao, peso_real, observacao))
+                INSERT INTO pesagens_prevencao (data_hora, codigo, descricao, secao, quantidade, peso_real, observacao)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (data_hora, codigo, descricao, secao, quantidade, peso_real, observacao))
             conn.commit()
             st.success("✅ Pesagem registrada com sucesso!")
 
@@ -122,6 +128,7 @@ if aba == "📥 Lançar Pesagens (Prevenção)":
     if not df_pesagens.empty:
         for idx, row in df_pesagens.iterrows():
             with st.expander(f"🗂️ {row['data_hora']} | {row['codigo']} - {row['descricao']}"):
+                st.write(f"**Quantidade:** {row['quantidade']} unid.")
                 st.write(f"**Peso Real:** {row['peso_real']} kg")
                 st.write(f"**Observação:** {row['observacao']}")
                 if st.button("❌ Excluir", key=f"del_{row['id']}"):
@@ -161,6 +168,7 @@ elif aba == "🧾 Auditar Recebimento":
                         with cols[j]:
                             st.markdown(f"### 📦 {row['codigo']} - {row['descricao']}")
                             st.write(f"**Seção:** {row['secao']}")
+                            st.write(f"**Quantidade:** {row['quantidade']} unid.")
                             st.write(f"**Peso Real:** {row['peso_real']} kg")
                             peso_sistema = st.number_input(f"Peso Sistema", key=f"sistema_{row['id']}", step=0.01)
                             observ = st.text_input("Observações", key=f"obs_{row['id']}")
@@ -168,9 +176,9 @@ elif aba == "🧾 Auditar Recebimento":
                                 diferenca = row['peso_real'] - peso_sistema
                                 data_hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
                                 cursor.execute("""
-                                    INSERT INTO auditorias (data_hora, codigo, descricao, secao, peso_real, peso_sistema, diferenca, observacao)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                """, (data_hora, row['codigo'], row['descricao'], row['secao'], row['peso_real'], peso_sistema, diferenca, observ))
+                                    INSERT INTO auditorias (data_hora, codigo, descricao, secao, quantidade, peso_real, peso_sistema, diferenca, observacao)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """, (data_hora, row['codigo'], row['descricao'], row['secao'], row['quantidade'], row['peso_real'], peso_sistema, diferenca, observ))
                                 conn.commit()
                                 if diferenca != 0:
                                     st.toast(f"⚠️ Divergência de {diferenca:.2f} kg no produto {row['descricao']}", icon="⚠️")
