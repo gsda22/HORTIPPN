@@ -7,6 +7,7 @@ import locale
 import openpyxl
 import sqlite3
 import os
+import pytz
 
 # --- Configurações da página (sidebar e estilo) ---
 st.set_page_config(
@@ -50,6 +51,9 @@ dias_semana = {
     'Saturday': 'Sábado',
     'Sunday': 'Domingo'
 }
+
+# Define o fuso horário de Brasília
+brasilia_tz = pytz.timezone('America/Sao_Paulo')
 
 # --- Funções do Banco de Dados (SQLite) ---
 DB_FILE = "gestao_recebimentos.db"
@@ -122,8 +126,8 @@ def save_reception(data):
     c = conn.cursor()
     c.execute("""
         INSERT INTO recebimentos (codigo_produto, quantidade_recebida, condicao_produto,
-                                  data_recebimento, dia_semana, hora_recebimento,
-                                  foto_evidencia, conferente)
+                                 data_recebimento, dia_semana, hora_recebimento,
+                                 foto_evidencia, conferente)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (data['codigo_produto'], data['quantidade_recebida'], data['condicao_produto'],
           data['data_recebimento'], data['dia_semana'], data['hora_recebimento'],
@@ -143,7 +147,7 @@ def save_audit(data):
     c = conn.cursor()
     c.execute("""
         INSERT INTO auditorias (codigo_produto, quantidade_sistema, quantidade_divergente,
-                                data_auditoria, auditor, status_divergencia)
+                                 data_auditoria, auditor, status_divergencia)
         VALUES (?, ?, ?, ?, ?, ?)
     """, (data['codigo_produto'], data['quantidade_sistema'], data['quantidade_divergente'],
           data['data_auditoria'], data['auditor'], data['status_divergencia']))
@@ -301,7 +305,7 @@ def show_recebimento_page():
 
     if submit_button:
         if codigo and quantidade > 0:
-            now = datetime.datetime.now()
+            now = datetime.datetime.now(brasilia_tz) # CORREÇÃO: Usando o fuso horário
             data_recebimento = now.strftime('%d/%m/%Y %H:%M')
             dia_semana_ingles = now.strftime('%A')
             dia_semana_br = dias_semana.get(dia_semana_ingles, dia_semana_ingles)
@@ -348,15 +352,14 @@ def show_auditoria_page():
     consolidado = consolidado.merge(produtos_df, on='codigo_produto', how='left')
 
     st.subheader("Consolidado de Recebimentos (Cego)")
-    st.dataframe(consolidado[['codigo_produto', 'descricao_produto', 'quantidade_total_recebida']].style.highlight_max(axis=0))
+    # CORREÇÃO: Aplicando highlight_max apenas na coluna numérica
+    st.dataframe(consolidado.style.highlight_max(subset=['quantidade_total_recebida'], axis=0))
 
     st.markdown("---")
     st.subheader("Registro de Auditoria")
 
-    # Move o selectbox e a métrica para fora do formulário
     opcoes_produtos = consolidado['codigo_produto'].tolist()
     
-    # Adicionando um valor padrão para evitar erro se a lista estiver vazia
     if not opcoes_produtos:
         st.warning("Não há produtos para auditar.")
         return
@@ -368,12 +371,11 @@ def show_auditoria_page():
     )
     
     quant_receb = 0
-    if prod_audit: # Garante que prod_audit não seja None
+    if prod_audit:
         quant_receb = consolidado[consolidado['codigo_produto'] == prod_audit]['quantidade_total_recebida'].iloc[0]
     
     st.metric("Quantidade Recebida (Coletada)", f"{quant_receb:.2f}")
 
-    # Cria o formulário apenas com os campos de submissão
     with st.form("form_auditoria", clear_on_submit=True):
         quant_sistema = st.number_input("Quantidade do Sistema (Informada)", value=0.0, format="%.2f", min_value=0.0, key="quant_sistema_input")
         submit_audit = st.form_submit_button("Registrar Auditoria")
@@ -383,11 +385,12 @@ def show_auditoria_page():
             divergencia = quant_receb - quant_sistema
             status = "Aberta" if divergencia != 0 else "Solucionada"
             
+            now = datetime.datetime.now(brasilia_tz) # CORREÇÃO: Usando o fuso horário
             audit_data = {
                 'codigo_produto': prod_audit, 
                 'quantidade_sistema': quant_sistema,
                 'quantidade_divergente': divergencia,
-                'data_auditoria': datetime.datetime.now().strftime('%d/%m/%Y %H:%M'),
+                'data_auditoria': now.strftime('%d/%m/%Y %H:%M'),
                 'auditor': st.session_state.user_id,
                 'status_divergencia': status
             }
@@ -446,7 +449,6 @@ def show_divergentes_page():
         st.write(f"**Divergência:** {divergence_info['quantidade_divergente']} unidades")
         st.write(f"**Status Atual:** {divergence_info['status_divergencia']}")
 
-        # Exibir evidência (foto) - busca o registro de recebimento pelo código do produto
         reception_record = df_recebimentos[df_recebimentos['codigo_produto'] == divergence_info['codigo_produto']]
         if not reception_record.empty and reception_record['condicao_produto'].iloc[0] == 'Ruim' and reception_record['foto_evidencia'].iloc[0]:
             st.subheader("Evidência Registrada")
