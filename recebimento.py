@@ -182,7 +182,7 @@ def delete_user(user_id):
 
 # --- Funções de Interface do Usuário (UI) ---
 def login_page():
-    st.sidebar.image("logo.png", width=150) # Adiciona a logo na sidebar
+    st.sidebar.image("logo.png", width=150)
     st.sidebar.title("Login")
     username = st.sidebar.text_input("Usuário")
     password = st.sidebar.text_input("Senha", type="password")
@@ -198,11 +198,10 @@ def login_page():
             st.sidebar.error("Usuário ou senha incorretos.")
 
 def main_app():
-    st.sidebar.image("logo.png", width=150) # Adiciona a logo na sidebar logada
+    st.sidebar.image("logo.png", width=150)
     st.sidebar.title(f"Bem-vindo, {st.session_state.user_id}!")
     st.sidebar.markdown(f"**Acesso:** {st.session_state.user_role}")
     
-    # Menu de abas
     menu_items = {
         "Conferente": ["Recebimento"],
         "Prevenção": ["Auditoria", "Divergentes"],
@@ -218,10 +217,9 @@ def main_app():
         st.session_state.user_id = None
         st.rerun()
 
-    # Exibição das páginas
     st.title("Sistema de Gestão de Recebimentos 📦")
-    st.image("logo.png", width=100) # Adiciona a logo no corpo principal do app
-    st.markdown("---") # Adiciona uma linha para separar a logo do conteúdo
+    st.image("logo.png", width=100)
+    st.markdown("---")
 
     if selected_page == "Recebimento":
         show_recebimento_page()
@@ -243,13 +241,11 @@ def show_recebimento_page():
         try:
             df = pd.read_excel(uploaded_file)
             conn = get_db_connection()
-            # Renomeia colunas para o padrão do DB
             df = df.rename(columns={
                 'codigo': 'codigo_produto',
                 'descricao': 'descricao_produto',
                 'secao': 'secao_produto'
             })
-            # Salva no DB
             df.to_sql('produtos', conn, if_exists='replace', index=False)
             conn.close()
             st.success("Base de produtos carregada com sucesso!")
@@ -340,11 +336,9 @@ def show_recebimento_page():
 def show_auditoria_page():
     st.header("Auditoria de Recebimentos")
 
-    # --- NOVO: SEÇÃO DE HISTÓRICO DE AUDITORIAS ---
+    # --- SEÇÃO DE HISTÓRICO DE AUDITORIAS (continua igual) ---
     st.subheader("Histórico de Auditorias Realizadas")
-
     conn = get_db_connection()
-    # Puxa todas as auditorias, não apenas as divergentes
     df_auditorias_hist = pd.read_sql_query("SELECT * FROM auditorias", conn)
     produtos_df_hist = pd.read_sql_query("SELECT * FROM produtos", conn)
     conn.close()
@@ -352,11 +346,9 @@ def show_auditoria_page():
     if df_auditorias_hist.empty:
         st.info("Nenhuma auditoria foi registrada ainda.")
     else:
-        # Adiciona a descrição do produto ao histórico
         df_auditorias_hist = df_auditorias_hist.merge(produtos_df_hist[['codigo_produto', 'descricao_produto']], on='codigo_produto', how='left')
         df_auditorias_hist['data_auditoria_dt'] = pd.to_datetime(df_auditorias_hist['data_auditoria'], format='%d/%m/%Y %H:%M')
 
-        # Filtros de data
         start_date_hist = st.date_input("Data de Início", value=None, key="audit_start_date")
         end_date_hist = st.date_input("Data de Fim", value=None, key="audit_end_date")
 
@@ -365,32 +357,38 @@ def show_auditoria_page():
             df_filtered_hist = df_filtered_hist[df_filtered_hist['data_auditoria_dt'].dt.date >= start_date_hist]
         if end_date_hist:
             df_filtered_hist = df_filtered_hist[df_filtered_hist['data_auditoria_dt'].dt.date <= end_date_hist]
-
-        # Exibe o dataframe filtrado
+        
         st.dataframe(df_filtered_hist.drop(columns=['data_auditoria_dt']))
     
     st.markdown("---")
     
-    # --- SEÇÃO ORIGINAL DE REGISTRO DE AUDITORIA (mantida abaixo) ---
-    st.subheader("Registrar Nova Auditoria")
+    # --- SEÇÃO DE REGISTRO DE NOVA AUDITORIA (aqui faremos a mudança) ---
+    st.subheader("Registrar Nova Auditoria (Produtos Pendentes)")
 
     consolidado = get_consolidated_recebimentos()
-    if consolidado.empty:
-        st.info("Nenhum recebimento registrado para auditar.")
-        return
-        
+    
     conn = get_db_connection()
     produtos_df = pd.read_sql_query("SELECT * FROM produtos", conn)
+    # MUDANÇA 1: Pegar a lista de produtos que JÁ FORAM auditados
+    df_produtos_auditados = pd.read_sql_query("SELECT DISTINCT codigo_produto FROM auditorias", conn)
     conn.close()
 
-    consolidado = consolidado.merge(produtos_df, on='codigo_produto', how='left')
-    
-    opcoes_produtos = consolidado['codigo_produto'].tolist()
-    
-    if not opcoes_produtos:
-        st.warning("Não há produtos para auditar.")
+    if not consolidado.empty:
+        consolidado = consolidado.merge(produtos_df, on='codigo_produto', how='left')
+
+        # MUDANÇA 2: Remover os produtos já auditados da lista de pendentes
+        produtos_auditados_lista = df_produtos_auditados['codigo_produto'].tolist()
+        consolidado_pendente = consolidado[~consolidado['codigo_produto'].isin(produtos_auditados_lista)]
+    else:
+        consolidado_pendente = pd.DataFrame() # Cria um dataframe vazio se não houver nada
+
+    # A partir daqui, usamos o `consolidado_pendente` em vez do `consolidado`
+    if consolidado_pendente.empty:
+        st.success("🎉 Todos os produtos recebidos já foram auditados!")
         return
         
+    opcoes_produtos = consolidado_pendente['codigo_produto'].tolist()
+    
     prod_audit = st.selectbox(
         "Selecione o Produto para Auditar",
         opcoes_produtos,
@@ -399,7 +397,8 @@ def show_auditoria_page():
     
     quant_receb = 0
     if prod_audit:
-        quant_receb = consolidado[consolidado['codigo_produto'] == prod_audit]['quantidade_total_recebida'].iloc[0]
+        # Usamos o consolidado_pendente para pegar a quantidade
+        quant_receb = consolidado_pendente[consolidado_pendente['codigo_produto'] == prod_audit]['quantidade_total_recebida'].iloc[0]
     
     st.metric("Quantidade Total Recebida (Coletada)", f"{quant_receb:.2f}")
 
@@ -426,7 +425,8 @@ def show_auditoria_page():
                 st.warning(f"Divergência encontrada: {divergencia:.2f} unidades.")
             else:
                 st.success("Auditoria registrada sem divergências.")
-            st.rerun()
+            # st.rerun() força a recarga da página, o que fará o produto sumir da lista
+            st.rerun() 
         else:
             st.error("Por favor, selecione um produto e insira a quantidade do sistema.")
 
