@@ -305,7 +305,7 @@ def show_recebimento_page():
 
     if submit_button:
         if codigo and quantidade > 0:
-            now = datetime.datetime.now(brasilia_tz) # CORREÇÃO: Usando o fuso horário
+            now = datetime.datetime.now(brasilia_tz) 
             data_recebimento = now.strftime('%d/%m/%Y %H:%M')
             dia_semana_ingles = now.strftime('%A')
             dia_semana_br = dias_semana.get(dia_semana_ingles, dia_semana_ingles)
@@ -339,7 +339,41 @@ def show_recebimento_page():
 
 def show_auditoria_page():
     st.header("Auditoria de Recebimentos")
+
+    # --- NOVO: SEÇÃO DE HISTÓRICO DE AUDITORIAS ---
+    st.subheader("Histórico de Auditorias Realizadas")
+
+    conn = get_db_connection()
+    # Puxa todas as auditorias, não apenas as divergentes
+    df_auditorias_hist = pd.read_sql_query("SELECT * FROM auditorias", conn)
+    produtos_df_hist = pd.read_sql_query("SELECT * FROM produtos", conn)
+    conn.close()
+
+    if df_auditorias_hist.empty:
+        st.info("Nenhuma auditoria foi registrada ainda.")
+    else:
+        # Adiciona a descrição do produto ao histórico
+        df_auditorias_hist = df_auditorias_hist.merge(produtos_df_hist[['codigo_produto', 'descricao_produto']], on='codigo_produto', how='left')
+        df_auditorias_hist['data_auditoria_dt'] = pd.to_datetime(df_auditorias_hist['data_auditoria'], format='%d/%m/%Y %H:%M')
+
+        # Filtros de data
+        start_date_hist = st.date_input("Data de Início", value=None, key="audit_start_date")
+        end_date_hist = st.date_input("Data de Fim", value=None, key="audit_end_date")
+
+        df_filtered_hist = df_auditorias_hist.copy()
+        if start_date_hist:
+            df_filtered_hist = df_filtered_hist[df_filtered_hist['data_auditoria_dt'].dt.date >= start_date_hist]
+        if end_date_hist:
+            df_filtered_hist = df_filtered_hist[df_filtered_hist['data_auditoria_dt'].dt.date <= end_date_hist]
+
+        # Exibe o dataframe filtrado
+        st.dataframe(df_filtered_hist.drop(columns=['data_auditoria_dt']))
     
+    st.markdown("---")
+    
+    # --- SEÇÃO ORIGINAL DE REGISTRO DE AUDITORIA (mantida abaixo) ---
+    st.subheader("Registrar Nova Auditoria")
+
     consolidado = get_consolidated_recebimentos()
     if consolidado.empty:
         st.info("Nenhum recebimento registrado para auditar.")
@@ -350,14 +384,7 @@ def show_auditoria_page():
     conn.close()
 
     consolidado = consolidado.merge(produtos_df, on='codigo_produto', how='left')
-
-    st.subheader("Consolidado de Recebimentos (Cego)")
-    # CORREÇÃO: Aplicando highlight_max apenas na coluna numérica
-    st.dataframe(consolidado.style.highlight_max(subset=['quantidade_total_recebida'], axis=0))
-
-    st.markdown("---")
-    st.subheader("Registro de Auditoria")
-
+    
     opcoes_produtos = consolidado['codigo_produto'].tolist()
     
     if not opcoes_produtos:
@@ -374,7 +401,7 @@ def show_auditoria_page():
     if prod_audit:
         quant_receb = consolidado[consolidado['codigo_produto'] == prod_audit]['quantidade_total_recebida'].iloc[0]
     
-    st.metric("Quantidade Recebida (Coletada)", f"{quant_receb:.2f}")
+    st.metric("Quantidade Total Recebida (Coletada)", f"{quant_receb:.2f}")
 
     with st.form("form_auditoria", clear_on_submit=True):
         quant_sistema = st.number_input("Quantidade do Sistema (Informada)", value=0.0, format="%.2f", min_value=0.0, key="quant_sistema_input")
@@ -385,7 +412,7 @@ def show_auditoria_page():
             divergencia = quant_receb - quant_sistema
             status = "Aberta" if divergencia != 0 else "Solucionada"
             
-            now = datetime.datetime.now(brasilia_tz) # CORREÇÃO: Usando o fuso horário
+            now = datetime.datetime.now(brasilia_tz)
             audit_data = {
                 'codigo_produto': prod_audit, 
                 'quantidade_sistema': quant_sistema,
@@ -403,9 +430,7 @@ def show_auditoria_page():
         else:
             st.error("Por favor, selecione um produto e insira a quantidade do sistema.")
 
-# =================================================================
-# ============ FUNÇÃO CORRIGIDA COMEÇA AQUI =======================
-# =================================================================
+
 def show_divergentes_page():
     st.header("Divergências Encontradas")
 
@@ -415,8 +440,6 @@ def show_divergentes_page():
     df_produtos = pd.read_sql_query("SELECT * FROM produtos", conn)
     conn.close()
 
-    # Primeiro, converte a coluna de data para o formato datetime
-    # É mais eficiente fazer isso uma vez antes de qualquer filtro
     if not df_auditorias.empty:
         df_auditorias['data_auditoria_dt'] = pd.to_datetime(df_auditorias['data_auditoria'], format='%d/%m/%Y %H:%M')
 
@@ -434,41 +457,32 @@ def show_divergentes_page():
     with col1:
         status_filter = st.selectbox("Filtrar por Status", ["Todos"] + list(df_divergentes['status_divergencia'].unique()))
     with col2:
-        # A data mínima é a primeira data de auditoria registrada, a máxima é a última.
-        # Isso melhora a experiência do usuário no seletor de data.
         min_date = df_divergentes['data_auditoria_dt'].min().date() if not df_divergentes.empty else None
         max_date = df_divergentes['data_auditoria_dt'].max().date() if not df_divergentes.empty else None
         
         start_date = st.date_input("Data de Início", value=None, min_value=min_date, max_value=max_date, key="diverg_start_date")
         end_date = st.date_input("Data de Fim", value=None, min_value=min_date, max_value=max_date, key="diverg_end_date")
 
-    # --- LÓGICA DO FILTRO CORRIGIDA ---
     df_filtered = df_divergentes.copy()
 
-    # Filtro por Status
     if status_filter != "Todos":
         df_filtered = df_filtered[df_filtered['status_divergencia'] == status_filter]
     
-    # Filtro por Data (agora mais flexível)
     if start_date:
         df_filtered = df_filtered[df_filtered['data_auditoria_dt'].dt.date >= start_date]
     
     if end_date:
         df_filtered = df_filtered[df_filtered['data_auditoria_dt'].dt.date <= end_date]
 
-    # Adiciona uma verificação para evitar datas inválidas
     if start_date and end_date and start_date > end_date:
         st.error("A data de início não pode ser maior que a data de fim.")
-        # Mostra o dataframe vazio ou sem filtro de data para não travar a aplicação
         st.dataframe(pd.DataFrame()) 
     else:
-        # Exibe o resultado. Remove a coluna extra de datetime antes de mostrar ao usuário.
         st.dataframe(df_filtered.drop(columns=['data_auditoria_dt'])[['id_auditoria', 'codigo_produto', 'descricao_produto', 'quantidade_divergente', 'data_auditoria', 'auditor', 'status_divergencia']])
     
     st.markdown("---")
     st.subheader("Tratamento de Pendência")
 
-    # Verifica se o dataframe filtrado não está vazio antes de popular o selectbox
     if not df_filtered.empty:
         selected_audit = st.selectbox("Selecione a divergência para tratamento", df_filtered['id_auditoria'].tolist())
         
@@ -489,16 +503,13 @@ def show_divergentes_page():
             if st.button("Atualizar Status"):
                 conn = get_db_connection()
                 c = conn.cursor()
-                c.execute("UPDATE auditorias SET status_divergencia = ? WHERE id_auditoria = ?", (new_status, int(selected_audit))) # Adicionado int() para segurança
+                c.execute("UPDATE auditorias SET status_divergencia = ? WHERE id_auditoria = ?", (new_status, int(selected_audit)))
                 conn.commit()
                 conn.close()
                 st.success("Status atualizado com sucesso!")
                 st.rerun()
     else:
         st.info("Nenhuma divergência encontrada para os filtros selecionados.")
-# =================================================================
-# ============= FUNÇÃO CORRIGIDA TERMINA AQUI =====================
-# =================================================================
 
 def show_relatorios_page():
     st.header("Relatórios Detalhados")
