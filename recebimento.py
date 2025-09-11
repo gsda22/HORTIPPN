@@ -126,8 +126,8 @@ def save_reception(data):
     c = conn.cursor()
     c.execute("""
         INSERT INTO recebimentos (codigo_produto, quantidade_recebida, condicao_produto,
-                                 data_recebimento, dia_semana, hora_recebimento,
-                                 foto_evidencia, conferente)
+                                  data_recebimento, dia_semana, hora_recebimento,
+                                  foto_evidencia, conferente)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (data['codigo_produto'], data['quantidade_recebida'], data['condicao_produto'],
           data['data_recebimento'], data['dia_semana'], data['hora_recebimento'],
@@ -147,7 +147,7 @@ def save_audit(data):
     c = conn.cursor()
     c.execute("""
         INSERT INTO auditorias (codigo_produto, quantidade_sistema, quantidade_divergente,
-                                 data_auditoria, auditor, status_divergencia)
+                                  data_auditoria, auditor, status_divergencia)
         VALUES (?, ?, ?, ?, ?, ?)
     """, (data['codigo_produto'], data['quantidade_sistema'], data['quantidade_divergente'],
           data['data_auditoria'], data['auditor'], data['status_divergencia']))
@@ -403,6 +403,9 @@ def show_auditoria_page():
         else:
             st.error("Por favor, selecione um produto e insira a quantidade do sistema.")
 
+# =================================================================
+# ============ FUNÇÃO CORRIGIDA COMEÇA AQUI =======================
+# =================================================================
 def show_divergentes_page():
     st.header("Divergências Encontradas")
 
@@ -411,6 +414,11 @@ def show_divergentes_page():
     df_recebimentos = pd.read_sql_query("SELECT * FROM recebimentos", conn)
     df_produtos = pd.read_sql_query("SELECT * FROM produtos", conn)
     conn.close()
+
+    # Primeiro, converte a coluna de data para o formato datetime
+    # É mais eficiente fazer isso uma vez antes de qualquer filtro
+    if not df_auditorias.empty:
+        df_auditorias['data_auditoria_dt'] = pd.to_datetime(df_auditorias['data_auditoria'], format='%d/%m/%Y %H:%M')
 
     df_divergentes = df_auditorias[df_auditorias['status_divergencia'] != 'Solucionada']
     if df_divergentes.empty:
@@ -426,45 +434,71 @@ def show_divergentes_page():
     with col1:
         status_filter = st.selectbox("Filtrar por Status", ["Todos"] + list(df_divergentes['status_divergencia'].unique()))
     with col2:
-        start_date = st.date_input("Data de Início", value=None)
-        end_date = st.date_input("Data de Fim", value=None)
+        # A data mínima é a primeira data de auditoria registrada, a máxima é a última.
+        # Isso melhora a experiência do usuário no seletor de data.
+        min_date = df_divergentes['data_auditoria_dt'].min().date() if not df_divergentes.empty else None
+        max_date = df_divergentes['data_auditoria_dt'].max().date() if not df_divergentes.empty else None
+        
+        start_date = st.date_input("Data de Início", value=None, min_value=min_date, max_value=max_date, key="diverg_start_date")
+        end_date = st.date_input("Data de Fim", value=None, min_value=min_date, max_value=max_date, key="diverg_end_date")
 
+    # --- LÓGICA DO FILTRO CORRIGIDA ---
     df_filtered = df_divergentes.copy()
+
+    # Filtro por Status
     if status_filter != "Todos":
         df_filtered = df_filtered[df_filtered['status_divergencia'] == status_filter]
     
-    if start_date and end_date:
-        df_filtered['data_auditoria_dt'] = pd.to_datetime(df_filtered['data_auditoria'], format='%d/%m/%Y %H:%M')
-        df_filtered = df_filtered[(df_filtered['data_auditoria_dt'].dt.date >= start_date) & (df_filtered['data_auditoria_dt'].dt.date <= end_date)]
+    # Filtro por Data (agora mais flexível)
+    if start_date:
+        df_filtered = df_filtered[df_filtered['data_auditoria_dt'].dt.date >= start_date]
+    
+    if end_date:
+        df_filtered = df_filtered[df_filtered['data_auditoria_dt'].dt.date <= end_date]
 
-    st.dataframe(df_filtered[['id_auditoria', 'codigo_produto', 'descricao_produto', 'quantidade_divergente', 'data_auditoria', 'auditor', 'status_divergencia']])
+    # Adiciona uma verificação para evitar datas inválidas
+    if start_date and end_date and start_date > end_date:
+        st.error("A data de início não pode ser maior que a data de fim.")
+        # Mostra o dataframe vazio ou sem filtro de data para não travar a aplicação
+        st.dataframe(pd.DataFrame()) 
+    else:
+        # Exibe o resultado. Remove a coluna extra de datetime antes de mostrar ao usuário.
+        st.dataframe(df_filtered.drop(columns=['data_auditoria_dt'])[['id_auditoria', 'codigo_produto', 'descricao_produto', 'quantidade_divergente', 'data_auditoria', 'auditor', 'status_divergencia']])
     
     st.markdown("---")
     st.subheader("Tratamento de Pendência")
-    selected_audit = st.selectbox("Selecione a divergência para tratamento", df_filtered['id_auditoria'].tolist())
-    
-    if selected_audit:
-        divergence_info = df_filtered[df_filtered['id_auditoria'] == selected_audit].iloc[0]
-        st.write(f"**Produto:** {divergence_info['descricao_produto']}")
-        st.write(f"**Divergência:** {divergence_info['quantidade_divergente']} unidades")
-        st.write(f"**Status Atual:** {divergence_info['status_divergencia']}")
 
-        reception_record = df_recebimentos[df_recebimentos['codigo_produto'] == divergence_info['codigo_produto']]
-        if not reception_record.empty and reception_record['condicao_produto'].iloc[0] == 'Ruim' and reception_record['foto_evidencia'].iloc[0]:
-            st.subheader("Evidência Registrada")
-            image_bytes = base64.b64decode(reception_record['foto_evidencia'].iloc[0])
-            st.image(image_bytes, caption="Foto do produto ruim")
-
-        new_status = st.radio("Mudar Status", ["Aberta", "Em tratamento", "Solucionada"], index=["Aberta", "Em tratamento", "Solucionada"].index(divergence_info['status_divergencia']))
+    # Verifica se o dataframe filtrado não está vazio antes de popular o selectbox
+    if not df_filtered.empty:
+        selected_audit = st.selectbox("Selecione a divergência para tratamento", df_filtered['id_auditoria'].tolist())
         
-        if st.button("Atualizar Status"):
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute("UPDATE auditorias SET status_divergencia = ? WHERE id_auditoria = ?", (new_status, selected_audit))
-            conn.commit()
-            conn.close()
-            st.success("Status atualizado com sucesso!")
-            st.rerun()
+        if selected_audit:
+            divergence_info = df_filtered[df_filtered['id_auditoria'] == selected_audit].iloc[0]
+            st.write(f"**Produto:** {divergence_info['descricao_produto']}")
+            st.write(f"**Divergência:** {divergence_info['quantidade_divergente']} unidades")
+            st.write(f"**Status Atual:** {divergence_info['status_divergencia']}")
+
+            reception_record = df_recebimentos[df_recebimentos['codigo_produto'] == divergence_info['codigo_produto']]
+            if not reception_record.empty and reception_record['condicao_produto'].iloc[0] == 'Ruim' and reception_record['foto_evidencia'].iloc[0]:
+                st.subheader("Evidência Registrada")
+                image_bytes = base64.b64decode(reception_record['foto_evidencia'].iloc[0])
+                st.image(image_bytes, caption="Foto do produto ruim")
+
+            new_status = st.radio("Mudar Status", ["Aberta", "Em tratamento", "Solucionada"], index=["Aberta", "Em tratamento", "Solucionada"].index(divergence_info['status_divergencia']))
+            
+            if st.button("Atualizar Status"):
+                conn = get_db_connection()
+                c = conn.cursor()
+                c.execute("UPDATE auditorias SET status_divergencia = ? WHERE id_auditoria = ?", (new_status, int(selected_audit))) # Adicionado int() para segurança
+                conn.commit()
+                conn.close()
+                st.success("Status atualizado com sucesso!")
+                st.rerun()
+    else:
+        st.info("Nenhuma divergência encontrada para os filtros selecionados.")
+# =================================================================
+# ============= FUNÇÃO CORRIGIDA TERMINA AQUI =====================
+# =================================================================
 
 def show_relatorios_page():
     st.header("Relatórios Detalhados")
